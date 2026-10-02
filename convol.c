@@ -315,32 +315,54 @@ int main(int argc, char *argv[]) {
         
   /* Reading the Raster file */
   read_rasterfile( argv[1], &r);
-  h = r.file.ras_height;
-  w = r.file.ras_width;
+  n = r.file.ras_height;
+  m = r.file.ras_width;
     
   /* Start of timing */
   start = my_gettimeofday();            
 
   /* Data distribution by process 0 */
+  unsigned char *local_data = malloc(n / p * m * sizeof(unsigned char));
 
-  // TODO
+  MPI_Scatter(
+  r ,
+  n / p * m ,
+  MPI_UNSIGNED_CHAR,
+  local_data,
+  n / p * m,
+  MPI_UNSIGNED_CHAR,
+  0,
+  MPI_COMM_WORLD);
 
-  /* Communication for additional data */
-
-  // TODO
-
-  /* Convolution calculation */
-
-  // TODO
-
+  
   if(my_rank == 0){
-
+    
+    /* Communication for additional data */
+  
+    // TODO
+  
+    /* Convolution calculation */
+  
+    // TODO
   }
   else if(my_rank ==p){
 
+    /* Communication for additional data */
+  
+    // TODO
+  
+    /* Convolution calculation */
+  
+    // TODO
   }
   else{
-    
+    /* Communication for additional data */
+  
+    // TODO
+  
+    /* Convolution calculation */
+  
+    // TODO
   }
 
   // for(i=0 ; i < nbiter ; i++){
