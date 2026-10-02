@@ -314,7 +314,7 @@ int main(int argc, char *argv[]) {
     fprintf( stderr, usage, argv[0]);
     return 1;
   }
-      
+
   /* Parameter entry */
   filter = atoi(argv[2]);
   nbiter = atoi(argv[3]);
@@ -325,21 +325,22 @@ int main(int argc, char *argv[]) {
   m = r.file.ras_width;
     
   /* Start of timing */
-  start = my_gettimeofday();            
+  start = my_gettimeofday();
 
   /* Data distribution by process 0 */
   unsigned char *initial_data = malloc((n / p + k-1)  * m * sizeof(unsigned char));
-
+  
   MPI_Scatter(
-  r.data ,
-  n / p * m ,
-  MPI_UNSIGNED_CHAR,
-  &initial_data[m * ((k - 1) / 2)],
-  n / p * m,
-  MPI_UNSIGNED_CHAR,
-  0,
-  MPI_COMM_WORLD);
-
+    r.data ,
+    n / p * m ,
+    MPI_UNSIGNED_CHAR,
+    &initial_data[m * ((k - 1) / 2)],
+    n / p * m,
+    MPI_UNSIGNED_CHAR,
+    0,
+    MPI_COMM_WORLD);
+    
+for(i=0 ; i < nbiter ; i++){
   if(my_rank == 0){
     /* Communication for additional data */
 
@@ -348,9 +349,7 @@ int main(int argc, char *argv[]) {
   
     /* Convolution calculation */
 
-    for(i=0 ; i < nbiter ; i++){
       convolution(filter, &initial_data[m * (k-1)/2], (n/p + (k-1)/2), m);
-    } /* for i */
   
   }
   else if(my_rank ==p-1){
@@ -364,11 +363,7 @@ int main(int argc, char *argv[]) {
       MPI_Recv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 1, MPI_COMM_WORLD, &status);
     }
         
-    /* Convolution calculation */
-
-    for(i=0 ; i < nbiter ; i++){
-      convolution(filter, &initial_data[0], (n/p + (k-1)/2), m);
-    } /* for i */
+    convolution(filter, &initial_data[0], (n/p + (k-1)/2), m);
 
     
   }
@@ -382,9 +377,7 @@ int main(int argc, char *argv[]) {
   
     /* Convolution calculation */
   
-    for(i=0 ; i < nbiter ; i++){
-      convolution(filter, &initial_data[0], m * (n/p + (k-1)), m);
-    } /* for i */
+      convolution(filter, &initial_data[0], (n/p + (k-1)), m);
 
   }else{
     /* Communication for additional data */
@@ -396,18 +389,17 @@ int main(int argc, char *argv[]) {
   
     /* Convolution calculation */
   
-    for(i=0 ; i < nbiter ; i++){
       convolution(filter, &initial_data[0], (n/p + (k-1)), m);
-    } /* for i */
 
   }
+}
 
   MPI_Gather(
       &initial_data[m * (k-1)/2],
-      n / p ,                      
+      n / p * m,                      
       MPI_UNSIGNED_CHAR,           
       r.data,                      
-      n / p,                 
+      n / p * m,                 
       MPI_UNSIGNED_CHAR,           
       0,                           
       MPI_COMM_WORLD               
@@ -423,7 +415,7 @@ int main(int argc, char *argv[]) {
     sprintf(output_name, "post-convolution_filter%d_nbIter%d.ras", filter, nbiter);
     save_rasterfile(output_name, &r);
   }
-
+  MPI_Finalize();
   return 0;
 }
 
