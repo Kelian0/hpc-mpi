@@ -10,6 +10,10 @@
 #include <string.h> /* for memcpy() */
 #include <sys/time.h>   /* for timing */
 
+#include <mpi.h>
+#include <unistd.h>
+#define SIZE_H_N 50
+
 #include "rasterfile.h"
 
 #define MAX(a,b) ((a>b) ? a : b)
@@ -281,6 +285,8 @@ int main(int argc, char *argv[]) {
   int         my_rank;      /* process rank        */
   int         p;            /* number of processes */
   MPI_Status  status;        
+  int         tag = 0;      /* message tag         */
+
   char hostname[SIZE_H_N] ; gethostname(hostname,SIZE_H_N);  
 
   /* Initialization:  */
@@ -291,7 +297,7 @@ int main(int argc, char *argv[]) {
 
   /* Variables relating to the image */
   Raster r;
-  int    w, h;	/* number of lines and columns of the image */
+  int    n, m;	/* number of lines and columns of the image */
 
   /* Variables related to the image processing */
   int 	 filter;		/* filter number */
@@ -302,7 +308,7 @@ int main(int argc, char *argv[]) {
 
   /* Loop variables */
   int 	i,j;
-
+  int k = 3;
 
   if (argc != 4) {
     fprintf( stderr, usage, argv[0]);
@@ -322,54 +328,90 @@ int main(int argc, char *argv[]) {
   start = my_gettimeofday();            
 
   /* Data distribution by process 0 */
-  unsigned char *local_data = malloc(n / p * m * sizeof(unsigned char));
+  unsigned char *initial_data = malloc((n / p + k-1)  * m * sizeof(unsigned char));
 
   MPI_Scatter(
-  r ,
+  r.data ,
   n / p * m ,
   MPI_UNSIGNED_CHAR,
-  local_data,
+  &initial_data[m * ((k - 1) / 2)],
   n / p * m,
   MPI_UNSIGNED_CHAR,
   0,
   MPI_COMM_WORLD);
 
-  
   if(my_rank == 0){
+    /* Communication for additional data */
+
+    MPI_Recv(&initial_data[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 0, MPI_COMM_WORLD, &status);
+    MPI_Send(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 1, MPI_COMM_WORLD);
+  
+    /* Convolution calculation */
+
+    for(i=0 ; i < nbiter ; i++){
+      convolution(filter, &initial_data[m * (k-1)/2], (n/p + (k-1)/2), m);
+    } /* for i */
+  
+  }
+  else if(my_rank ==p-1){
+    /* Communication for additional data */
+    if(my_rank % 2 == 0){
+      MPI_Recv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 1, MPI_COMM_WORLD, &status);
+      MPI_Send(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 0, MPI_COMM_WORLD);      
+    }
+    else{
+      MPI_Send(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 0, MPI_COMM_WORLD);
+      MPI_Recv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 1, MPI_COMM_WORLD, &status);
+    }
+        
+    /* Convolution calculation */
+
+    for(i=0 ; i < nbiter ; i++){
+      convolution(filter, &initial_data[0], (n/p + (k-1)/2), m);
+    } /* for i */
+
     
+  }
+  else if(my_rank % 2== 0){
     /* Communication for additional data */
-  
-    // TODO
+    MPI_Recv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 1, MPI_COMM_WORLD, &status);
+    MPI_Recv(&initial_data[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 0, MPI_COMM_WORLD, &status);
+    
+    MPI_Send(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 0, MPI_COMM_WORLD);
+    MPI_Send(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 1, MPI_COMM_WORLD);
   
     /* Convolution calculation */
   
-    // TODO
-  }
-  else if(my_rank ==p){
+    for(i=0 ; i < nbiter ; i++){
+      convolution(filter, &initial_data[0], m * (n/p + (k-1)), m);
+    } /* for i */
 
+  }else{
     /* Communication for additional data */
-  
-    // TODO
+    MPI_Send(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 0, MPI_COMM_WORLD);
+    MPI_Send(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 1, MPI_COMM_WORLD);
+    
+    MPI_Recv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 1, MPI_COMM_WORLD, &status);
+    MPI_Recv(&initial_data[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 0, MPI_COMM_WORLD, &status);
   
     /* Convolution calculation */
   
-    // TODO
-  }
-  else{
-    /* Communication for additional data */
-  
-    // TODO
-  
-    /* Convolution calculation */
-  
-    // TODO
+    for(i=0 ; i < nbiter ; i++){
+      convolution(filter, &initial_data[0], (n/p + (k-1)), m);
+    } /* for i */
+
   }
 
-  // for(i=0 ; i < nbiter ; i++){
-  //   convolution( filter, r.data, h, w);
-  // } /* for i */
-
-  /* Sending back the result */
+  MPI_Gather(
+      &initial_data[m * (k-1)/2],
+      n / p ,                      
+      MPI_UNSIGNED_CHAR,           
+      r.data,                      
+      n / p,                 
+      MPI_UNSIGNED_CHAR,           
+      0,                           
+      MPI_COMM_WORLD               
+  );
 
   /* End of timing */
   end = my_gettimeofday();
