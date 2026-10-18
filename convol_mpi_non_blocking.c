@@ -237,36 +237,21 @@ unsigned char filter( filter_t choice,
  * \sa filter()
  */
 
-int convolution( filter_t choice, unsigned char tab[], int nbl, int nbc) {
+int convolution( filter_t choice, unsigned char tab[], unsigned char res[], int nbl, int nbc) {
   int i,j;
-  unsigned char *tmp;
-  
-  /* Memory allocation of the intermediate buffer: */
-  tmp = (unsigned char*) malloc(sizeof(unsigned char) *nbc*nbl);
-  if (tmp == NULL) {
-    printf("Error when allocating memory for tmp in convolution()\n");
-    return 1;
-  }
   
   /* Skipping the edges: */
   for(i=1 ; i<nbl-1 ; i++){
     for(j=1 ; j<nbc-1 ; j++){
-      tmp[i*nbc+j] = filter(
+      res[i*nbc+j] = filter(
 			    choice,
-			    tab[(i+1)*nbc+j-1],tab[(i+1)*nbc+j],tab[(i+1)*nbc+j+1],
+          tab[(i+1)*nbc+j-1],tab[(i+1)*nbc+j],tab[(i+1)*nbc+j+1],
 			    tab[(i  )*nbc+j-1],tab[(i)*nbc+j],tab[(i)*nbc+j+1],
 			    tab[(i-1)*nbc+j-1],tab[(i-1)*nbc+j],tab[(i-1)*nbc+j+1]);
     } /* for j */
+    res[i*nbc] = tab[i*nbc];
+    res[i*nbc + nbc - 1] = tab[i*nbc + nbc - 1];   
   } /* for i */
-  
-  /* Copying the processed image back into the original image. 
-   * Note that the first and last rows, and first and last columns are not copied (which forces the line-by-line copy). */
-  for( i=1; i<nbl-1; i++){
-    memcpy( tab+nbc*i+1, tmp+nbc*i+1, (nbc-2)*sizeof(unsigned char));
-  } /* for i */
-  
-  /* Freeing the memory of the intermediate buffer: */
-  free(tmp);
   return 0;  
 }
 
@@ -330,6 +315,7 @@ int main(int argc, char *argv[]) {
   start = my_gettimeofday();
 
   /* Data distribution by process 0 */
+  unsigned char *res = malloc((n/p + k - 1) * m * sizeof(unsigned char));
   unsigned char *initial_data = malloc((n / p + k-1)  * m * sizeof(unsigned char));
   
   MPI_Scatter(
@@ -341,7 +327,7 @@ int main(int argc, char *argv[]) {
     MPI_UNSIGNED_CHAR,
     0,
     MPI_COMM_WORLD);
-    
+
 for(i=0 ; i < nbiter ; i++){
   if(my_rank == 0){
     /* Communication for additional data */
@@ -349,51 +335,59 @@ for(i=0 ; i < nbiter ; i++){
     MPI_Irecv(&initial_data[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 0, MPI_COMM_WORLD, &reqs[0]);
     MPI_Isend(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 1, MPI_COMM_WORLD, &reqs[1]);
   
+    /* Independent convolution calculation */
+    convolution(filter, &initial_data[0], &res[0] , n/p, m);
+    memcpy(initial_data, res, m*sizeof(unsigned char));
+    
+    /* Waiting */
+    MPI_Waitall(2, reqs, MPI_STATUSES_IGNORE);
+    
     /* Convolution calculation */
-
-      convolution(filter, &initial_data[m * (k-1)/2], (n/p + (k-1)/2), m);
-  
+    convolution(filter, &initial_data[(n/p - (k-1)/2)*m], &res[(n/p - (k-1)/2)*m], ((k-1)/2), m);
+    memcpy(initial_data + m*(n/p), res+m*(n/p), m*sizeof(unsigned char));
   }
   else if(my_rank ==p-1){
     /* Communication for additional data */
-    if(my_rank % 2 == 0){
-      MPI_Irecv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 1, MPI_COMM_WORLD, &reqs[0]);
-      MPI_Isend(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 0, MPI_COMM_WORLD, &reqs[1]);      
-    }
-    else{
-      MPI_Isend(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 0, MPI_COMM_WORLD, &reqs[1]);
-      MPI_Irecv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 1, MPI_COMM_WORLD, &reqs[0]);
-    }
-        
-    convolution(filter, &initial_data[0], (n/p + (k-1)/2), m);
+    MPI_Isend(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 0, MPI_COMM_WORLD, &reqs[1]);
+    MPI_Irecv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 1, MPI_COMM_WORLD, &reqs[0]);
 
-    
-  }
-  else if(my_rank % 2== 0){
-    /* Communication for additional data */
-    MPI_Irecv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 1, MPI_COMM_WORLD, &status);
-    MPI_Irecv(&initial_data[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 0, MPI_COMM_WORLD, &status);
-    
-    MPI_Isend(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 0, MPI_COMM_WORLD);
-    MPI_Isend(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 1, MPI_COMM_WORLD);
-  
-    /* Convolution calculation */
-  
-      convolution(filter, &initial_data[0], (n/p + (k-1)), m);
+    /* Independent convolution calculation */
+    convolution(filter, &initial_data[(k-1)/2 * m], &res[(k-1)/2 * m], (n/p), m);
+    memcpy(initial_data + m*((k-1)/2 + n/p), res+m*((k-1)/2 + n/p), m*sizeof(unsigned char));
 
-  }else{
-    /* Communication for additional data */
-    MPI_Isend(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 0, MPI_COMM_WORLD);
-    MPI_Isend(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 1, MPI_COMM_WORLD);
-    
-    MPI_Irecv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 1, MPI_COMM_WORLD, &status);
-    MPI_Irecv(&initial_data[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 0, MPI_COMM_WORLD, &status);
-  
+    /* Waiting */
+    MPI_Waitall(2, reqs, MPI_STATUSES_IGNORE);
+
     /* Convolution calculation */
-  
-      convolution(filter, &initial_data[0], (n/p + (k-1)), m);
+    convolution(filter, &initial_data[0], &res[0],((k-1)/2), m);
+    memcpy(initial_data, res, m*sizeof(unsigned char));
 
   }
+  else{
+    /* Communication for additional data */
+    MPI_Isend(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 0, MPI_COMM_WORLD, &reqs[0]);
+    MPI_Isend(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 1, MPI_COMM_WORLD, &reqs[1]);
+    
+    MPI_Irecv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 1, MPI_COMM_WORLD, &reqs[2]);
+    MPI_Irecv(&initial_data[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 0, MPI_COMM_WORLD, &reqs[3]);
+  
+    /* Independent convolution calculation */
+    convolution(filter, &initial_data[(k-1)/2 * m],&res[(k-1)/2 * m], (n/p - (k-1)), m);
+
+    /* Waiting */
+    MPI_Waitall(4, reqs, MPI_STATUSES_IGNORE);
+
+
+    /* Convolution calculation */
+    convolution(filter, &initial_data[0], &res[0],((k-1)/2), m);
+    convolution(filter, &initial_data[(n/p)*m], &res[n/p * m], ((k-1)/2), m);
+
+    // memcpy(initial_data, res, m*sizeof(unsigned char));
+    // memcpy(initial_data + m*((k-1)/2 + n/p), res+m*((k-1)/2 + n/p), m*sizeof(unsigned char));
+
+
+  }
+  memcpy(&initial_data[m * ((k-1)/2)], &res[m * ((k-1)/2)], (n/p) * m * sizeof(unsigned char));
 }
 
   MPI_Gather(
