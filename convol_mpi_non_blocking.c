@@ -404,7 +404,7 @@ for(i=0 ; i < nbiter ; i++){
     /* Saving the Raster file */
   { 
     char output_name[100] = "";
-    sprintf(output_name, "post-convolution_filter%d_nbIter%d.ras", filter, nbiter);
+    sprintf(output_name, "non_blocking_filter%d_nbIter%d_nbprocess%d.ras", filter, nbiter, p);
     save_rasterfile(output_name, &r);
   }
   free(res);
