@@ -328,6 +328,12 @@ int main(int argc, char *argv[]) {
     0,
     MPI_COMM_WORLD);
 
+if(my_rank == 0){
+  memcpy(&res[m], &initial_data[m], m * sizeof(unsigned char));    
+}else if(my_rank ==p-1){
+  memcpy(&res[m * (n/p)], &initial_data[m * (n/p)], m * sizeof(unsigned char));
+}
+
 for(i=0 ; i < nbiter ; i++){
   if(my_rank == 0){
     /* Communication for additional data */
@@ -337,7 +343,6 @@ for(i=0 ; i < nbiter ; i++){
   
     /* Independent convolution calculation */
     convolution(filter, &initial_data[0], &res[0] , n/p + 1, m);
-    memcpy(&res[m], &initial_data[m], m * sizeof(unsigned char));    
     /* Waiting */
     MPI_Waitall(2, reqs, MPI_STATUSES_IGNORE);
     
@@ -351,7 +356,6 @@ for(i=0 ; i < nbiter ; i++){
     
     /* Independent convolution calculation */
     convolution(filter, &initial_data[(k-1)/2 * m], &res[(k-1)/2 * m], n/p + 1, m);
-    memcpy(&res[m * (n/p)], &initial_data[m * (n/p)], m * sizeof(unsigned char));
     
     /* Waiting */
     MPI_Waitall(2, reqs, MPI_STATUSES_IGNORE);
