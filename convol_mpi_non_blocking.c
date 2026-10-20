@@ -237,24 +237,22 @@ unsigned char filter( filter_t choice,
  * \sa filter()
  */
 
-int convolution( filter_t choice, unsigned char tab[], unsigned char res[], int nbl, int nbc) {
-  int i,j;
-  
-  /* Skipping the edges: */
-  for(i=1 ; i<nbl-1 ; i++){
-    for(j=1 ; j<nbc-1 ; j++){
-      res[i*nbc+j] = filter(
-			    choice,
-          tab[(i+1)*nbc+j-1],tab[(i+1)*nbc+j],tab[(i+1)*nbc+j+1],
-			    tab[(i  )*nbc+j-1],tab[(i)*nbc+j],tab[(i)*nbc+j+1],
-			    tab[(i-1)*nbc+j-1],tab[(i-1)*nbc+j],tab[(i-1)*nbc+j+1]);
-    } /* for j */
-    res[i*nbc] = tab[i*nbc];
-    res[i*nbc + nbc - 1] = tab[i*nbc + nbc - 1];   
-  } /* for i */
-  return 0;  
-}
+int convolution(filter_t choice, unsigned char *tab_in, unsigned char *tab_out, int start_line, int end_line, int nbc) {
 
+for(int i = start_line; i < end_line; i++) {
+    /* Keep vertical borders */
+    tab_out[i * nbc] = tab_in[i * nbc];
+    tab_out[i * nbc + nbc - 1] = tab_in[i * nbc + nbc - 1];
+    
+    for(int j = 1; j < nbc - 1; j++) {
+      tab_out[i * nbc + j] = filter(
+          choice,
+          tab_in[(i+1)*nbc+j-1], tab_in[(i+1)*nbc+j], tab_in[(i+1)*nbc+j+1],
+          tab_in[(i  )*nbc+j-1], tab_in[(i)*nbc+j],   tab_in[(i)*nbc+j+1],
+          tab_in[(i-1)*nbc+j-1], tab_in[(i-1)*nbc+j], tab_in[(i-1)*nbc+j+1]);
+    }
+  }
+}
 
 /**
  * User interface
@@ -307,94 +305,89 @@ int main(int argc, char *argv[]) {
   nbiter = atoi(argv[3]);
         
   /* Reading the Raster file */
+  if (my_rank == 0){
   read_rasterfile( argv[1], &r);
   n = r.file.ras_height;
   m = r.file.ras_width;
-    
+  }
+
+  unsigned char *data_in = malloc((n / p + k-1)  * m * sizeof(unsigned char));
+  unsigned char *data_out = malloc((n / p + k - 1) * m * sizeof(unsigned char));
   /* Start of timing */
   start = my_gettimeofday();
-
+  
   /* Data distribution by process 0 */
-  unsigned char *res = malloc((n/p + k - 1) * m * sizeof(unsigned char));
-  unsigned char *initial_data = malloc((n / p + k-1)  * m * sizeof(unsigned char));
   
   MPI_Scatter(
     r.data ,
     n / p * m ,
     MPI_UNSIGNED_CHAR,
-    &initial_data[m * ((k - 1) / 2)],
+    &data_in[m * ((k - 1) / 2)],
     n / p * m,
     MPI_UNSIGNED_CHAR,
     0,
     MPI_COMM_WORLD);
-
-if(my_rank == 0){
-  memcpy(&res[m], &initial_data[m], m * sizeof(unsigned char));    
-}else if(my_rank ==p-1){
-  memcpy(&res[m * (n/p)], &initial_data[m * (n/p)], m * sizeof(unsigned char));
-}
+    
+  memcpy(data_out, data_in, (n / p + k - 1) * m);
 
 for(i=0 ; i < nbiter ; i++){
   if(my_rank == 0){
     /* Communication for additional data */
 
-    MPI_Irecv(&initial_data[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 0, MPI_COMM_WORLD, &reqs[0]);
-    MPI_Isend(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 1, MPI_COMM_WORLD, &reqs[1]);
+    MPI_Irecv(&data_in[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 0, MPI_COMM_WORLD, &reqs[0]);
+    MPI_Isend(&data_in[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 1, MPI_COMM_WORLD, &reqs[1]);
   
     /* Independent convolution calculation */
-    convolution(filter, &initial_data[m], &res[m], n/p, m);
+    convolution(filter, data_in, data_out, 1, n / p - 1, m);
 
     /* Waiting */
     MPI_Waitall(2, reqs, MPI_STATUSES_IGNORE);
     
     /* Convolution calculation */
-    convolution(filter, &initial_data[(n/p - (k-1)/2)*m], &res[(n/p - (k-1)/2)*m], k, m);
+    convolution(filter, data_in, data_out, n / p -2, n / p + -1, m);
   }
   else if(my_rank ==p-1){
     /* Communication for additional data */
-    MPI_Isend(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 0, MPI_COMM_WORLD, &reqs[1]);
-    MPI_Irecv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 1, MPI_COMM_WORLD, &reqs[0]);
+    MPI_Isend(&data_in[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 0, MPI_COMM_WORLD, &reqs[1]);
+    MPI_Irecv(&data_in[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 1, MPI_COMM_WORLD, &reqs[0]);
     
     /* Independent convolution calculation */
-    convolution(filter, &initial_data[(k-1)/2 * m], &res[(k-1)/2 * m], n/p + 1, m);
+    convolution(filter, data_in, data_out, 2, n / p + (k-1)-1, m);
     
     /* Waiting */
     MPI_Waitall(2, reqs, MPI_STATUSES_IGNORE);
     
     /* Convolution calculation */
-    convolution(filter, &initial_data[0], &res[0], k, m);
+    convolution(filter, data_in, data_out, 1, 2, m);
   }
   else{
     /* Communication for additional data */
-    MPI_Isend(&initial_data[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 0, MPI_COMM_WORLD, &reqs[0]);
-    MPI_Isend(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 1, MPI_COMM_WORLD, &reqs[1]);
+    MPI_Isend(&data_in[m * (k-1)/2], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 0, MPI_COMM_WORLD, &reqs[0]);
+    MPI_Isend(&data_in[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 1, MPI_COMM_WORLD, &reqs[1]);
     
-    MPI_Irecv(&initial_data[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 1, MPI_COMM_WORLD, &reqs[2]);
-    MPI_Irecv(&initial_data[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 0, MPI_COMM_WORLD, &reqs[3]);
+    MPI_Irecv(&data_in[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank-1, 1, MPI_COMM_WORLD, &reqs[2]);
+    MPI_Irecv(&data_in[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 0, MPI_COMM_WORLD, &reqs[3]);
   
     /* Independent convolution calculation */
-    convolution(filter, &initial_data[(k-1)/2 * m],&res[(k-1)/2 * m], n/p, m);
+    convolution(filter, data_in, data_out, 2, n / p + (k-1)-2, m);
 
     /* Waiting */
     MPI_Waitall(4, reqs, MPI_STATUSES_IGNORE);
 
 
     /* Convolution calculation */
-    convolution(filter, &initial_data[0], &res[0],k, m);
-    convolution(filter, &initial_data[(n/p -1)*m], &res[(n/p -1) * m], k, m);
-
-    // memcpy(initial_data, res, m*sizeof(unsigned char));
-    // memcpy(initial_data + m*((k-1)/2 + n/p), res+m*((k-1)/2 + n/p), m*sizeof(unsigned char));
+    convolution(filter, data_in, data_out, 1, 2, m);
+    convolution(filter, data_in, data_out, n / p + (k-1)-2,  n / p + (k-1)-1, m);
 
 
   }
-  unsigned char *tmp = initial_data;
-  initial_data = res;
-  res = tmp;
+  unsigned char *temp = data_in;
+  data_in = data_out;
+  data_out = temp;
 }
 
   MPI_Gather(
-      &initial_data[m * (k-1)/2],
+      &data_in[m * (k-1)/2],
       n / p * m,                      
       MPI_UNSIGNED_CHAR,           
       r.data,                      
@@ -414,8 +407,8 @@ for(i=0 ; i < nbiter ; i++){
     sprintf(output_name, "non_blocking_filter%d_nbIter%d_nbprocess%d.ras", filter, nbiter, p);
     save_rasterfile(output_name, &r);
   }
-  free(res);
-  free(initial_data);
+  free(data_in);
+  free(data_out);
 
   MPI_Finalize();
   return 0;
