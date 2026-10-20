@@ -387,7 +387,9 @@ for(i=0 ; i < nbiter ; i++){
 
 
   }
-  memcpy(&initial_data[m * ((k-1)/2)], &res[m * ((k-1)/2)], (n/p) * m * sizeof(unsigned char));
+  unsigned char *tmp = initial_data;
+  initial_data = res;
+  res = tmp;
 }
 
   MPI_Gather(
