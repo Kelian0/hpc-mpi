@@ -342,7 +342,8 @@ for(i=0 ; i < nbiter ; i++){
     MPI_Isend(&initial_data[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 1, MPI_COMM_WORLD, &reqs[1]);
   
     /* Independent convolution calculation */
-    convolution(filter, &initial_data[0], &res[0] , n/p + 1, m);
+    convolution(filter, &initial_data[m], &res[m], n/p, m);
+
     /* Waiting */
     MPI_Waitall(2, reqs, MPI_STATUSES_IGNORE);
     
@@ -408,7 +409,7 @@ for(i=0 ; i < nbiter ; i++){
   printf("Total calculation time: %g second(s) \n", end - start);
     
     /* Saving the Raster file */
-  { 
+  if (my_rank == 0){ 
     char output_name[100] = "";
     sprintf(output_name, "non_blocking_filter%d_nbIter%d_nbprocess%d.ras", filter, nbiter, p);
     save_rasterfile(output_name, &r);

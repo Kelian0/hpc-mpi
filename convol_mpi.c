@@ -321,13 +321,15 @@ int main(int argc, char *argv[]) {
   nbiter = atoi(argv[3]);
         
   /* Reading the Raster file */
+  if (my_rank == 0){
   read_rasterfile( argv[1], &r);
   n = r.file.ras_height;
   m = r.file.ras_width;
-    
+  }
+  MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
   /* Start of timing */
-  start = my_gettimeofday();
-
+  
   /* Data distribution by process 0 */
   unsigned char *initial_data = malloc((n / p + k-1)  * m * sizeof(unsigned char));
   
@@ -341,6 +343,7 @@ int main(int argc, char *argv[]) {
     0,
     MPI_COMM_WORLD);
     
+start = my_gettimeofday();
 for(i=0 ; i < nbiter ; i++){
   if(my_rank == 0){
     /* Communication for additional data */
@@ -390,7 +393,7 @@ for(i=0 ; i < nbiter ; i++){
   
     /* Convolution calculation */
   
-      convolution(filter, &initial_data[0], (n/p + (k-1)), m);
+    convolution(filter, &initial_data[0], (n/p + (k-1)), m);
 
   }
 }
@@ -411,11 +414,12 @@ for(i=0 ; i < nbiter ; i++){
   printf("Total calculation time: %g second(s) \n", end - start);
     
     /* Saving the Raster file */
-  { 
+  if (my_rank == 0){ 
     char output_name[100] = "";
     sprintf(output_name, "mpi_filter%d_nbIter%d_nbprocess%d.ras", filter, nbiter, p);
     save_rasterfile(output_name, &r);
   }
+  free(initial_data);
   MPI_Finalize();
   return 0;
 }
