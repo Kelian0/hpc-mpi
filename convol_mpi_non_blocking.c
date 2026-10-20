@@ -310,11 +310,14 @@ int main(int argc, char *argv[]) {
   n = r.file.ras_height;
   m = r.file.ras_width;
   }
-
+  start = my_gettimeofday();
+  
+  MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  
   unsigned char *data_in = malloc((n / p + k-1)  * m * sizeof(unsigned char));
   unsigned char *data_out = malloc((n / p + k - 1) * m * sizeof(unsigned char));
   /* Start of timing */
-  start = my_gettimeofday();
   
   /* Data distribution by process 0 */
   
@@ -328,8 +331,8 @@ int main(int argc, char *argv[]) {
     0,
     MPI_COMM_WORLD);
     
-  memcpy(data_out, data_in, (n / p + k - 1) * m);
-
+    memcpy(data_out, data_in, (n / p + k - 1) * m);
+    
 for(i=0 ; i < nbiter ; i++){
   if(my_rank == 0){
     /* Communication for additional data */
@@ -338,13 +341,13 @@ for(i=0 ; i < nbiter ; i++){
     MPI_Isend(&data_in[m * n/p ], m * (k-1) / 2, MPI_UNSIGNED_CHAR, 1, 1, MPI_COMM_WORLD, &reqs[1]);
   
     /* Independent convolution calculation */
-    convolution(filter, data_in, data_out, 1, n / p - 1, m);
+    convolution(filter, data_in, data_out, 2, n / p, m);
 
     /* Waiting */
     MPI_Waitall(2, reqs, MPI_STATUSES_IGNORE);
     
     /* Convolution calculation */
-    convolution(filter, data_in, data_out, n / p -2, n / p + -1, m);
+    convolution(filter, data_in, data_out, n / p , n / p + 1, m);
   }
   else if(my_rank ==p-1){
     /* Communication for additional data */
@@ -352,7 +355,7 @@ for(i=0 ; i < nbiter ; i++){
     MPI_Irecv(&data_in[0], m * (k-1) / 2, MPI_UNSIGNED_CHAR, p-2, 1, MPI_COMM_WORLD, &reqs[0]);
     
     /* Independent convolution calculation */
-    convolution(filter, data_in, data_out, 2, n / p + (k-1)-1, m);
+    convolution(filter, data_in, data_out, 2, n / p , m);
     
     /* Waiting */
     MPI_Waitall(2, reqs, MPI_STATUSES_IGNORE);
@@ -369,7 +372,7 @@ for(i=0 ; i < nbiter ; i++){
     MPI_Irecv(&data_in[m * (n/p + (k-1)/2)], m * (k-1) / 2, MPI_UNSIGNED_CHAR, my_rank + 1, 0, MPI_COMM_WORLD, &reqs[3]);
   
     /* Independent convolution calculation */
-    convolution(filter, data_in, data_out, 2, n / p + (k-1)-2, m);
+    convolution(filter, data_in, data_out, 2, n / p, m);
 
     /* Waiting */
     MPI_Waitall(4, reqs, MPI_STATUSES_IGNORE);
@@ -377,7 +380,7 @@ for(i=0 ; i < nbiter ; i++){
 
     /* Convolution calculation */
     convolution(filter, data_in, data_out, 1, 2, m);
-    convolution(filter, data_in, data_out, n / p + (k-1)-2,  n / p + (k-1)-1, m);
+    convolution(filter, data_in, data_out, n / p ,  n / p + 1, m);
 
 
   }

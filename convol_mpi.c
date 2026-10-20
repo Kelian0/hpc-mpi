@@ -325,7 +325,9 @@ int main(int argc, char *argv[]) {
   read_rasterfile( argv[1], &r);
   n = r.file.ras_height;
   m = r.file.ras_width;
-  }
+}
+
+  start = my_gettimeofday();
   MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
   /* Start of timing */
@@ -343,7 +345,6 @@ int main(int argc, char *argv[]) {
     0,
     MPI_COMM_WORLD);
     
-start = my_gettimeofday();
 for(i=0 ; i < nbiter ; i++){
   if(my_rank == 0){
     /* Communication for additional data */
